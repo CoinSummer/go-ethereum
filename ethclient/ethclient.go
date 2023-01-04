@@ -172,6 +172,37 @@ func (ec *Client) getBlock(ctx context.Context, method string, args ...interface
 	return types.NewBlockWithHeader(head).WithBody(txs, uncles), nil
 }
 
+// BlockRange batch func for BlockByNumber, startNumber and endNumber both included
+func (ec *Client) BlockRange(ctx context.Context, startNumber *big.Int, endNumber *big.Int, withFullTransaction bool) ([]*types.Block, error) {
+	var raws []json.RawMessage
+	err := ec.c.CallContext(ctx, &raws, "eth_getBlockRange", toBlockNumArg(startNumber), toBlockNumArg(endNumber), withFullTransaction)
+	if err == nil && raws == nil {
+		err = ethereum.NotFound
+	}
+	var blocks []*types.Block
+	for _, raw := range raws {
+		var head *types.Header
+		var body rpcBlock
+		if err := json.Unmarshal(raw, &head); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(raw, &body); err != nil {
+			return nil, err
+		}
+		txs := make([]*types.Transaction, len(body.Transactions))
+		for i, tx := range body.Transactions {
+			if tx.From != nil {
+				setSenderFromServer(tx.tx, *tx.From, body.Hash)
+			}
+			txs[i] = tx.tx
+		}
+		var uncles []*types.Header
+		block := types.NewBlockWithHeader(head).WithBody(txs, uncles)
+		blocks = append(blocks, block)
+	}
+	return blocks, err
+}
+
 // HeaderByHash returns the block header with the given hash.
 func (ec *Client) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error) {
 	var head *types.Header
