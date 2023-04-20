@@ -148,7 +148,12 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 		itx.S = (*big.Int)(dec.S)
 		withSignature := itx.V.Sign() != 0 || itx.R.Sign() != 0 || itx.S.Sign() != 0
 		if withSignature {
-			if err := sanityCheckSignature(itx.V, itx.R, itx.S, true); err != nil {
+			// some evm chain not follow EIP-155，we will accept Legacy tx with v==0/1
+			maybeProtected := true
+			if itx.V.Int64() == 0 || itx.V.Int64() == 1 {
+				maybeProtected = false
+			}
+			if err := sanityCheckSignature(itx.V, itx.R, itx.S, maybeProtected); err != nil {
 				return err
 			}
 		}
@@ -264,6 +269,7 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 		}
 
 	default:
+		// Layer2 may extend many system tx type
 		var itx AccessListTx
 		inner = &itx
 		if dec.ChainID == nil {
@@ -311,6 +317,11 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 				return err
 			}
 		}
+	}
+
+	// save hash
+	if dec.Hash.Big().Cmp(big.NewInt(0)) != 0 {
+		tx.hash.Store(dec.Hash)
 	}
 
 	// Now set the inner transaction.
